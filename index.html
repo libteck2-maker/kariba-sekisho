@@ -7,6 +7,9 @@
 <title>狩場の関所</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DotGothic16&family=Reggae+One&family=Dela+Gothic+One&display=swap">
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#0d0c0b">
+<link rel="apple-touch-icon" href="icon-192.png">
 
 <style>
 :root{--ink:#0d0c0b;--paper:#f2ecdf;--red:#d6301f;--navy:#17185a;--gold:#ffd23f;--verm:#ff4a2a;--cream:#fff3d6}
@@ -285,6 +288,7 @@ function vBag(){
       : '<div style="text-align:center;margin-top:40px">まだ獲物がない。</div>') + '</div>';
 }
 function vRules(){
+  const pushLabel = !('PushManager' in window) ? 'この端末では通知を使えない' : (window.Notification && Notification.permission === 'granted') ? '通知オン（タップで登録を更新）' : '通知をオンにする';
   return '<div class="screen"><div class="h1">掟</div><div class="panel"><span class="tag">掟</span>' +
     [['引き返す','その日の1・3・6・10…回目で+1pt'],['同じ狩場の引き返し','10分あけないと数えない'],['獲物（お宝・肉）','+2pt'],['獲物（素材・未仕分け）','+1pt'],['料理した（話した・応募した・使った）','+3pt'],['坊主（獲物0で帰還）','5分ごとに −1pt'],['スタミナ超過','超えた5分ごとに −1pt'],['出猟から1分以内の帰還','ノーカウント'],[TICKET + 'pt','ガチャ券1枚']].map(r => '<div class="stat"><span>' + r[0] + '</span><span>' + r[1] + '</span></div>').join('') +
     '<p style="font-size:13px;margin-top:10px">坊主のたびに番人の機嫌が1段階悪くなり、画面が斬られる。獲物を制限時間内に持ち帰れば1段階戻る。制限時間を超えると機嫌が悪くなるが、たまに番人が見逃してくれる（機嫌が最悪のときは見逃してくれない）。</p></div>' +
@@ -292,7 +296,8 @@ function vRules(){
     (S.pt >= TICKET ? '<button class="btn" data-a="getTicket">' + TICKET + 'ptでガチャ券と交換</button>' : '') +
     (S.tickets ? '<button class="btn sub" data-a="useTicket">ガチャ券を使った（本物を1回）</button>' : '') +
     '<div class="panel"><span class="tag">接続</span><div style="font-size:14px">' + (remote ? 'Supabaseにつながる設定' : '端末内モード（Supabase未設定）') + '</div>' +
-    (remote ? '<div class="label">合言葉（ショートカットと同じもの）</div><input type="password" id="sec" value="' + esc(LS.get('kariba-secret') || '') + '"><button class="btn sub" style="margin-top:12px;margin-bottom:0" data-a="saveSecret">保存</button>' : '') + '</div></div>';
+    (remote ? '<div class="label">合言葉（ショートカットと同じもの）</div><input type="password" id="sec" value="' + esc(LS.get('kariba-secret') || '') + '"><button class="btn sub" style="margin-top:12px;margin-bottom:0" data-a="saveSecret">保存</button>' : '') + '</div>' +
+    (remote ? '<div class="panel"><span class="tag">通知</span><div style="font-size:14px">スタミナ切れから5分ごとに通知する</div><button class="btn sub" style="margin-top:12px;margin-bottom:0" data-a="pushOn">' + pushLabel + '</button></div>' : '') + '</div>';
 }
 function vSheet(){
   return '<div class="sheet" data-a="closeSheet"><div><div class="h1" style="font-size:24px">出猟の支度</div>' +
@@ -353,6 +358,7 @@ const ACT = {
   getTicket: () => act('get_ticket', {}, () => toast('ガチャ券ゲット！本物のガチャを1回まわしてよし')),
   useTicket: () => act('use_ticket', {}, () => toast('景品は基地の壁へ')),
   saveSecret: () => { LS.set('kariba-secret', ($('#sec') || {}).value || ''); toast('保存した'); boot(); },
+  pushOn: () => { enablePush().then(ok => { toast(ok ? '通知を登録した' : '通知を登録できなかった'); render(); }); },
 };
 async function loadBag(){ try { catches = await rpc('list_catches', {}) || []; } catch(e){ toast('獲物袋を開けなかった'); } render(); }
 document.addEventListener('input', e => { if (e.target.id === 'tx') draft.text = e.target.value; if (e.target.id === 'ti') draft.title = e.target.value; if (e.target.id === 'dl') draft.deadline = e.target.value; });
@@ -369,6 +375,25 @@ document.addEventListener('click', e => {
   if (d.cook) return act('cook', { p_id:d.cook }, () => { toast('料理完成 +3pt'); loadBag(); });
   if (d.cls){ const [id, k] = d.cls.split('|'); return act('classify', { p_id:id, p_kind:k }, () => loadBag()); }
 });
+function urlB64ToUint8(b){ const pad = '='.repeat((4 - b.length % 4) % 4); const raw = atob((b + pad).replace(/-/g, '+').replace(/_/g, '/')); const arr = new Uint8Array(raw.length); for (let i = 0; i < raw.length; i++) arr[i] = raw.charCodeAt(i); return arr; }
+async function enablePush(){
+  if (!remote || !('serviceWorker' in navigator) || !('PushManager' in window)) return false;
+  try {
+    const reg = await navigator.serviceWorker.register('sw.js');
+    const perm = await Notification.requestPermission();
+    if (perm !== 'granted') return false;
+    const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlB64ToUint8(CONFIG.VAPID_PUBLIC_KEY) });
+    const j = sub.toJSON();
+    if (!j || !j.keys) return false;
+    await rpc('register_push', { p_endpoint: j.endpoint, p_p256dh: j.keys.p256dh, p_auth: j.keys.auth });
+    return true;
+  } catch (e) { return false; }
+}
+function initPush(){
+  if (!remote || !('serviceWorker' in navigator)) return;
+  navigator.serviceWorker.register('sw.js').catch(() => {});
+  if (window.Notification && Notification.permission === 'granted' && LS.get('kariba-secret')) enablePush();
+}
 async function boot(){
   try { S = await rpc('hunt_status', {}); }
   catch(e){ S = { hunting:false, hunt:null, pt:0, stage:0, tickets:0, today_turnbacks:0, bozu_rate:0 }; toast('つながらなかった：' + e.message); }
@@ -377,6 +402,7 @@ async function boot(){
   render();
 }
 boot();
+initPush();
 })();
 </script>
 </body>
