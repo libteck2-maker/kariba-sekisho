@@ -161,8 +161,8 @@ const $ = s => document.querySelector(s);
 const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const LS = { get(k){ try{ return localStorage.getItem(k) }catch(e){ return null } }, set(k,v){ try{ localStorage.setItem(k,v) }catch(e){} } };
 const KIND = { 'お宝':{pt:2,life:14,verb:'応募した'}, '肉':{pt:2,life:7,verb:'話した'}, '素材':{pt:1,life:30,verb:'使った'}, '未仕分け':{pt:1,life:7,verb:'使った'} };
-const GROUNDS = ['Instagram','X','TikTok','YouTube','その他'];
-const SCHEME = { Instagram:'instagram://', X:'twitter://', TikTok:'snssdk1233://', YouTube:'youtube://' };
+const GROUNDS = ['Instagram','X','TikTok','TikTok Lite','YouTube','その他'];
+const SCHEME = { Instagram:'instagram://', X:'twitter://', TikTok:'snssdk1233://', 'TikTok Lite':'snssdk1233://', YouTube:'youtube://' };
 const TICKET = 20;
 
 /* ---------- データ層：Supabase RPC か、端末内モック ---------- */
