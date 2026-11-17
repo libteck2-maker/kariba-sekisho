@@ -235,6 +235,10 @@ const q = new URLSearchParams(location.search);
 if (q.get('gate') && GROUNDS.includes(q.get('gate'))) pickGround = q.get('gate');
 if (q.get('catch')){ draft.text = q.get('catch'); view = 'catch'; }
 if (q.get('view')) view = q.get('view');
+if (!(q.get('gate') || q.get('view') || q.get('catch') || q.get('return'))){
+  const sv = LS.get('kariba-view');
+  if (sv && ['gate','bag','catch','rules'].includes(sv)) view = sv;
+}
 
 function toast(m){ const t = document.createElement('div'); t.className = 'toast'; t.textContent = m; document.body.appendChild(t); setTimeout(() => t.remove(), 2400); }
 function world(){ return S && S.stage >= 4 ? 'geki' : 'pixel'; }
@@ -319,6 +323,7 @@ function render(){
   if (!S) return;
   if (view === 'gate' && S.hunting) view = 'hunt';
   if (view === 'hunt' && !S.hunting) view = 'gate';
+  LS.set('kariba-view', view === 'hunt' ? 'gate' : view);
   document.body.dataset.world = world();
   const app = $('#app'); app.innerHTML = '';
   if (view === 'gate'){ app.appendChild(vGate()); fitFrame(); }
@@ -335,6 +340,18 @@ function tick(){ if (!S || !S.hunt || !$('#tm')) return;
   $('#tl').textContent = sec > lim ? 'スタミナ切れ。獲物を持って帰れ' : '残り ' + Math.ceil((lim - sec) / 60) + '分'; }
 setInterval(tick, 1000);
 window.addEventListener('resize', fitFrame);
+async function refreshStatus(){
+  if (!S || !S.hunting || sheet || result || notice) return;
+  try {
+    const r = await rpc('hunt_status', {});
+    if (!r) return;
+    const changed = r.hunting !== S.hunting || (r.hunt && S.hunt ? r.hunt.catches !== S.hunt.catches : !!r.hunt !== !!S.hunt);
+    S = r;
+    if (changed && view !== 'catch') render();
+  } catch (e) {}
+}
+setInterval(refreshStatus, 20000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshStatus(); });
 
 async function act(fn, args, after){
   try { const r = await rpc(fn, args); if (r && typeof r.pt === 'number') S = r; if (after) after(r); render(); }
