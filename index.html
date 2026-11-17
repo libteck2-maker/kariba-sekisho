@@ -191,13 +191,16 @@ const Local = (function(){
     const today = new Date().toDateString();
     const last = D.hunts.filter(h => h.ended_at).slice(-30);
     return Object.assign({ hunting: !!active(), hunt: active(), pt: D.pt, stage: D.stage, tickets: D.tickets,
-      today_turnbacks: D.turnbacks.filter(t => new Date(t).toDateString() === today).length,
+      today_turnbacks: D.turnbacks.filter(x => new Date(typeof x === 'string' ? x : x.t).toDateString() === today).length,
       bozu_rate: last.length ? Math.round(last.filter(h => !h.catches).length / last.length * 100) : 0 }, extra || {});
   };
   const id = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
   return {
     hunt_status: () => status(),
-    turn_back: () => { D.turnbacks.push(new Date().toISOString()); const t = status().today_turnbacks; const n = Math.floor((Math.sqrt(8 * t + 1) - 1) / 2); const granted = n * (n + 1) / 2 === t; if (granted) D.pt += 1; save(); return status({ added_pt: granted ? 1 : 0 }); },
+    turn_back: a => { const g = (a && a.p_ground) || null; const now = Date.now();
+      const recent = D.turnbacks.some(x => { const o = typeof x === 'string' ? { t:x, g:null } : x; return (o.g || null) === g && now - new Date(o.t).getTime() < 600000; });
+      if (recent) return status({ added_pt:0, too_soon:true });
+      D.turnbacks.push({ t:new Date().toISOString(), g }); const t = status().today_turnbacks; const n = Math.floor((Math.sqrt(8 * t + 1) - 1) / 2); const granted = n * (n + 1) / 2 === t; if (granted) D.pt += 1; save(); return status({ added_pt: granted ? 1 : 0 }); },
     start_hunt: a => { if (!active()){ D.hunts.push({ id:id(), ground:a.p_ground || 'その他', started_at:new Date().toISOString(), stamina_min:a.p_stamina || 10, ended_at:null, catches:0, penalty:0 }); save(); } return status(); },
     add_catch: a => { const h = active(); const k = KIND[a.p_kind] ? a.p_kind : '未仕分け';
       D.catches.unshift({ id:id(), created_at:new Date().toISOString(), text:a.p_text, kind:k, title:a.p_title || null, deadline:a.p_deadline || null, ground:h ? h.ground : null, hunt_id:h ? h.id : null, used:false });
@@ -223,7 +226,7 @@ const Local = (function(){
 
 /* ---------- 画面 ---------- */
 let S = null, view = 'gate', catches = [], bagTab = 'all', draft = { text:'', kind:'未仕分け', title:'', deadline:'' };
-let pickGround = 'Instagram', pickStamina = 10, sheet = null, result = null, timerId = null;
+let pickGround = 'Instagram', pickStamina = 10, sheet = null, result = null, timerId = null, notice = null;
 const q = new URLSearchParams(location.search);
 if (q.get('gate') && GROUNDS.includes(q.get('gate'))) pickGround = q.get('gate');
 if (q.get('catch')){ draft.text = q.get('catch'); view = 'catch'; }
@@ -234,7 +237,7 @@ function world(){ return S && S.stage >= 4 ? 'geki' : 'pixel'; }
 function nav(){ const it = [['gate','関所'],['bag','獲物袋'],['catch','獲物を入れる'],['rules','掟']];
   return '<nav class="tabs">' + it.map(([k,l]) => '<a href="#" data-nav="' + k + '" class="' + (view === k || (k === 'gate' && view === 'hunt') ? 'on' : '') + '">' + l + '</a>').join('') + '</nav>'; }
 
-function fitFrame(){ const f = $('#frame'); if (!f) return; const s = Math.min(window.innerWidth, 480) / 390;
+function fitFrame(){ const f = $('#frame'); if (!f) return; const s = Math.min(Math.min(window.innerWidth, 480) / 390, window.innerHeight / 844);
   f.style.transform = 'scale(' + s + ')'; const b = $('#frameBox'); b.style.width = 390 * s + 'px'; b.style.height = 844 * s + 'px'; b.style.margin = '0 auto'; }
 
 function vGate(){
@@ -283,7 +286,7 @@ function vBag(){
 }
 function vRules(){
   return '<div class="screen"><div class="h1">掟</div><div class="panel"><span class="tag">掟</span>' +
-    [['引き返す','その日の1・3・6・10…回目で+1pt'],['獲物（お宝・肉）','+2pt'],['獲物（素材・未仕分け）','+1pt'],['料理した（話した・応募した・使った）','+3pt'],['坊主（獲物0で帰還）','5分ごとに −1pt'],['スタミナ超過','超えた5分ごとに −1pt'],['出猟から1分以内の帰還','ノーカウント'],[TICKET + 'pt','ガチャ券1枚']].map(r => '<div class="stat"><span>' + r[0] + '</span><span>' + r[1] + '</span></div>').join('') +
+    [['引き返す','その日の1・3・6・10…回目で+1pt'],['同じ狩場の引き返し','10分あけないと数えない'],['獲物（お宝・肉）','+2pt'],['獲物（素材・未仕分け）','+1pt'],['料理した（話した・応募した・使った）','+3pt'],['坊主（獲物0で帰還）','5分ごとに −1pt'],['スタミナ超過','超えた5分ごとに −1pt'],['出猟から1分以内の帰還','ノーカウント'],[TICKET + 'pt','ガチャ券1枚']].map(r => '<div class="stat"><span>' + r[0] + '</span><span>' + r[1] + '</span></div>').join('') +
     '<p style="font-size:13px;margin-top:10px">坊主のたびに番人の機嫌が1段階悪くなり、画面が斬られる。獲物を制限時間内に持ち帰れば1段階戻る。制限時間を超えると機嫌が悪くなるが、たまに番人が見逃してくれる（機嫌が最悪のときは見逃してくれない）。</p></div>' +
     '<div class="panel"><span class="tag">いま</span>' + [['狩猟pt', S.pt],['番人の機嫌', S.stage + ' / 4'],['ガチャ券', S.tickets + '枚'],['坊主率（直近30回）', S.bozu_rate + '%']].map(r => '<div class="stat"><span>' + r[0] + '</span><span>' + r[1] + '</span></div>').join('') + '</div>' +
     (S.pt >= TICKET ? '<button class="btn" data-a="getTicket">' + TICKET + 'ptでガチャ券と交換</button>' : '') +
@@ -292,7 +295,7 @@ function vRules(){
     (remote ? '<div class="label">合言葉（ショートカットと同じもの）</div><input type="password" id="sec" value="' + esc(LS.get('kariba-secret') || '') + '"><button class="btn sub" style="margin-top:12px;margin-bottom:0" data-a="saveSecret">保存</button>' : '') + '</div></div>';
 }
 function vSheet(){
-  return '<div class="sheet" data-a="closeSheet"><div onclick="event.stopPropagation()"><div class="h1" style="font-size:24px">出猟の支度</div>' +
+  return '<div class="sheet" data-a="closeSheet"><div><div class="h1" style="font-size:24px">出猟の支度</div>' +
     '<div class="label">狩場</div><div class="row">' + GROUNDS.map(g => '<button class="chip' + (pickGround === g ? ' on' : '') + '" data-g="' + g + '">' + g + '</button>').join('') + '</div>' +
     '<div class="label">スタミナ</div><div class="row">' + [5,10,15,30].map(m => '<button class="chip' + (pickStamina === m ? ' on' : '') + '" data-m="' + m + '">' + m + '分</button>').join('') + '</div>' +
     '<div style="height:18px"></div><button class="btn" data-a="startHunt">出猟！</button><button class="btn sub" data-a="closeSheet">やめる</button></div></div>';
@@ -302,6 +305,9 @@ function vResult(){
   if (r.void) return '<div class="result good" data-a="closeResult"><div class="big">帰還</div><div style="font-size:22px">短すぎて、狩りにならなかった。</div><div style="font-size:18px;color:#ffd23f">ノーカウント</div><div style="font-size:14px">（タップで関所へ）</div></div>';
   if (r.bozu) return '<div class="result bozu" data-a="closeResult"><div style="position:absolute;inset:0;overflow:hidden;z-index:-1">' + document.getElementById('bozu-bg').innerHTML + '</div><div class="big" style="filter:url(#rough);padding:10px">坊主</div><div style="font-size:22px">' + r.mins + '分を、森に捨てた。</div><div class="pen" style="border:6px solid #d6301f;background:#f2ecdf;padding:4px 16px;transform:rotate(-8deg)">−' + r.penalty + '</div><div style="font-size:14px;background:#f2ecdf;padding:2px 8px">（タップで関所へ）</div></div>';
   return '<div class="result good" data-a="closeResult"><div class="big">帰還</div><div style="font-size:22px">獲物 ' + r.catches + ' 匹を持ち帰った（' + r.mins + '分）</div>' + (r.penalty ? '<div class="pen">時間オーバー −' + r.penalty + '</div>' : '') + (r.mercy ? '<div style="font-size:18px;color:#ffd23f">番人が見逃してくれた。機嫌が少し直った</div>' : r.overtime ? '<div style="font-size:18px;color:#d6301f">時間オーバーで番人の機嫌が悪化した</div>' : '<div style="font-size:18px;color:#ffd23f">番人の機嫌が少し直った</div>') + '<div style="font-size:14px">（タップで関所へ）</div></div>';
+}
+function vNotice(){
+  return '<div class="result good" data-a="closeNotice"><div class="big" style="font-size:44px">' + esc(notice.t) + '</div><div style="font-size:19px;line-height:1.6">' + esc(notice.s) + '</div><div style="font-size:14px">（タップで関所へ）</div></div>';
 }
 function render(){
   if (!S) return;
@@ -313,6 +319,7 @@ function render(){
   else { app.innerHTML = ({ hunt:vHunt, catch:vCatch, bag:vBag, rules:vRules }[view] || vCatch)() + nav(); }
   if (sheet) app.insertAdjacentHTML('beforeend', vSheet());
   if (result) app.insertAdjacentHTML('beforeend', vResult());
+  if (notice) app.insertAdjacentHTML('beforeend', vNotice());
   tick();
 }
 function tick(){ if (!S || !S.hunt || !$('#tm')) return;
@@ -328,7 +335,10 @@ async function act(fn, args, after){
   catch(e){ toast('つながらなかった：' + e.message); }
 }
 const ACT = {
-  back: () => act('turn_back', { p_ground:pickGround }, r => toast(r && r.added_pt ? '引き返した。えらい。+1pt' : '引き返した。えらい。')),
+  back: () => act('turn_back', { p_ground:pickGround }, r => { notice = r && r.too_soon
+    ? { t:'番人が見ている', s:'さっき引き返したばかりだ。同じ狩場の引き返しは、10分あけないと数えない。' }
+    : { t:'引き返した', s:((r && r.added_pt) ? '+1pt。' : '') + 'ホームに戻って、別のことをしよう。' }; }),
+  closeNotice: () => { notice = null; render(); },
   hunt: () => { sheet = 'hunt'; render(); },
   closeSheet: () => { sheet = null; render(); },
   startHunt: () => act('start_hunt', { p_ground:pickGround, p_stamina:pickStamina }, () => { sheet = null; if (SCHEME[pickGround]) setTimeout(() => { location.href = SCHEME[pickGround]; }, 300); }),
@@ -351,7 +361,7 @@ document.addEventListener('click', e => {
   const d = el.dataset;
   if (d.nav){ e.preventDefault(); view = d.nav; if (view === 'bag') loadBag(); else render(); window.scrollTo(0, 0); return; }
   if (d.act && ACT[d.act]) return ACT[d.act]();
-  if (d.a && ACT[d.a]) return ACT[d.a]();
+  if (d.a && ACT[d.a]){ if (d.a === 'closeSheet' && e.target !== el) return; return ACT[d.a](); }
   if (d.g){ pickGround = d.g; return render(); }
   if (d.m){ pickStamina = +d.m; return render(); }
   if (d.k){ draft.kind = d.k; return render(); }
