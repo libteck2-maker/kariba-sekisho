@@ -359,7 +359,7 @@ const ACT = {
   getTicket: () => act('get_ticket', {}, () => toast('ガチャ券ゲット！本物のガチャを1回まわしてよし')),
   useTicket: () => act('use_ticket', {}, () => toast('景品は基地の壁へ')),
   saveSecret: () => { LS.set('kariba-secret', ($('#sec') || {}).value || ''); toast('保存した'); boot(); },
-  pushOn: () => { enablePush().then(ok => { toast(ok ? '通知を登録した' : '通知を登録できなかった'); render(); }); },
+  pushOn: () => { enablePush().then(ok => { toast(ok ? '通知を登録した' : '登録失敗 ' + pushErr); render(); }); },
 };
 async function loadBag(){ try { catches = await rpc('list_catches', {}) || []; } catch(e){ toast('獲物袋を開けなかった'); } render(); }
 document.addEventListener('input', e => { if (e.target.id === 'tx') draft.text = e.target.value; if (e.target.id === 'ti') draft.title = e.target.value; if (e.target.id === 'dl') draft.deadline = e.target.value; });
@@ -377,19 +377,27 @@ document.addEventListener('click', e => {
   if (d.cls){ const [id, k] = d.cls.split('|'); return act('classify', { p_id:id, p_kind:k }, () => loadBag()); }
 });
 function urlB64ToUint8(b){ const pad = '='.repeat((4 - b.length % 4) % 4); const raw = atob((b + pad).replace(/-/g, '+').replace(/_/g, '/')); const arr = new Uint8Array(raw.length); for (let i = 0; i < raw.length; i++) arr[i] = raw.charCodeAt(i); return arr; }
+let pushErr = '';
 async function enablePush(){
-  if (!remote || !('serviceWorker' in navigator) || !('PushManager' in window)) return false;
+  if (!remote || !('serviceWorker' in navigator) || !('PushManager' in window)){ pushErr = '非対応'; return false; }
+  let stage = 'sw';
   try {
     await navigator.serviceWorker.register('sw.js');
+    stage = '許可';
     const perm = await Notification.requestPermission();
-    if (perm !== 'granted') return false;
+    if (perm !== 'granted'){ pushErr = '許可:' + perm; return false; }
+    stage = 'sw準備';
     const reg = await navigator.serviceWorker.ready;
+    stage = '購読';
     const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlB64ToUint8(CONFIG.VAPID_PUBLIC_KEY) });
+    stage = '鍵';
     const j = sub.toJSON();
-    if (!j || !j.keys) return false;
+    if (!j || !j.keys){ pushErr = '鍵なし'; return false; }
+    stage = '送信';
     await rpc('register_push', { p_endpoint: j.endpoint, p_p256dh: j.keys.p256dh, p_auth: j.keys.auth });
+    pushErr = '';
     return true;
-  } catch (e) { return false; }
+  } catch (e) { pushErr = stage + ':' + (e && e.name ? e.name : 'Error'); return false; }
 }
 function initPush(){
   if (!remote || !('serviceWorker' in navigator)) return;
