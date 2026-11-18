@@ -777,6 +777,9 @@ function vSheet(){
 function vDism(){
   const c = catches.find(x => x.id === dismId);
   if (!c) return '';
+  if (c.used) return '<div class="sheet" data-a="closeSheet"><div><div class="h1" style="font-size:24px">解体済み</div>' +
+    (c.dismantle_note ? '<div class="fresh">→ ' + esc(c.dismantle_note) + '</div>' : '') +
+    '<div style="height:18px"></div><button class="btn sub" data-a="closeSheet">閉じる</button></div></div>';
   const url = (String(c.text).match(/https?:\/\/\S+/) || [])[0];
   return '<div class="sheet" data-a="closeSheet"><div><div class="h1" style="font-size:24px">解体する</div>' +
     '<div class="panel" style="margin-bottom:12px"><span class="kind k' + esc(c.kind) + '">' + esc(c.kind) + '</span><p style="margin-top:8px">' + esc(String(c.text).slice(0, 120)) + '</p></div>' +
@@ -844,9 +847,14 @@ const ACT = {
   hunt: () => { sheet = 'hunt'; render(); },
   closeSheet: () => { sheet = null; dismId = null; render(); },
   doDism: async () => { const note = (((($('#dn') || {}).value) || dismNote) || '').trim(); if (!note) return toast('何を取り出すか、一言書いて');
-    try { const r = await rpc('dismantle', { p_id:dismId, p_note:note }); if (r && typeof r.pt === 'number') S = r; } catch(e){ toast('つながらなかった：' + e.message); return; }
+    const id = dismId;
+    try { const r = await rpc('dismantle', { p_id:id, p_note:note }); if (r && typeof r.pt === 'number') S = r; } catch(e){ toast('つながらなかった：' + e.message); return; }
     if (isLab()){ try { const r2 = await rpc('end_hunt', {}); if (r2 && typeof r2.pt === 'number') S = r2; } catch(e){} }
-    toast('解体した +3pt'); sheet = null; dismId = null; dismNote = ''; loadBag(); },
+    sheet = null; dismId = null; dismNote = '';
+    await loadBag();
+    const c = catches.find(x => x.id === id);
+    if (c && c.used && (c.dismantle_note || '') === note){ toast('解体した +3pt'); }
+    else { dismId = id; dismNote = note; sheet = 'dism'; render(); toast('保存できてなかった。もう一度「解体する」を押して'); } },
   startHunt: () => act('start_hunt', { p_ground:pickGround, p_stamina:pickStamina }, () => { sheet = null; if (SCHEME[pickGround]) setTimeout(() => { location.href = SCHEME[pickGround]; }, 300); }),
   endHunt: () => act('end_hunt', {}, r => { if (r.result) result = r.result; view = 'gate'; }),
   closeResult: () => { result = null; render(); },
