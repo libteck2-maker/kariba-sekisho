@@ -217,8 +217,10 @@ const Local = (function(){
       else { pen = Math.max(0, Math.ceil((mins - h.stamina_min) / 5)); overtime = mins > h.stamina_min;
         if (overtime && (D.stage >= 4 || Math.random() >= 0.25)){ D.stage = Math.min(4, D.stage + 1); }
         else { mercy = overtime; D.stage = Math.max(0, D.stage - 1); } }
+      let rotten = 0; D.catches.forEach(c => { if (!c.used && !c.rot_counted && fresh(c).rot){ c.rot_counted = true; rotten++; } });
+      if (rotten) D.stage = Math.min(4, D.stage + 1);
       h.ended_at = new Date().toISOString(); h.penalty = pen; D.pt -= pen; save();
-      return status({ result:{ bozu, mins, penalty:pen, catches:h.catches, ground:h.ground, mercy, overtime } }); },
+      return status({ result:{ bozu, mins, penalty:pen, catches:h.catches, ground:h.ground, mercy, overtime, rotten } }); },
     list_catches: () => D.catches.slice(0, 300),
     classify: a => { const c = D.catches.find(x => x.id === a.p_id); if (c){ c.kind = a.p_kind; if (a.p_title != null) c.title = a.p_title; if (a.p_deadline !== undefined) c.deadline = a.p_deadline; save(); } return status(); },
     cook: a => { const c = D.catches.find(x => x.id === a.p_id); if (c && !c.used){ c.used = true; D.pt += 3; save(); } return status(); },
@@ -296,7 +298,7 @@ function vBag(){
 function vRules(){
   const pushLabel = !('PushManager' in window) ? 'この端末では通知を使えない' : (window.Notification && Notification.permission === 'granted') ? '通知オン（タップで登録を更新）' : '通知をオンにする';
   return '<div class="screen"><div class="h1">掟</div><div class="panel"><span class="tag">掟</span>' +
-    [['引き返す','その日の1・3・6・10…回目で+1pt'],['同じ狩場の引き返し','10分あけないと数えない'],['獲物（お宝・肉）','+2pt'],['獲物（素材・未仕分け）','+1pt'],['解体した（何になったか一言添える）','+3pt'],['坊主（獲物0で帰還）','5分ごとに −1pt'],['スタミナ超過','超えた5分ごとに −1pt'],['出猟から1分以内の帰還','ノーカウント'],[TICKET + 'pt','ガチャ券1枚']].map(r => '<div class="stat"><span>' + r[0] + '</span><span>' + r[1] + '</span></div>').join('') +
+    [['引き返す','その日の1・3・6・10…回目で+1pt'],['同じ狩場の引き返し','10分あけないと数えない'],['獲物（お宝・肉）','+2pt'],['獲物（素材・未仕分け）','+1pt'],['解体した（何になったか一言添える）','+3pt'],['獲物を腐らせた（帰還でまとめて判定）','機嫌+1'],['坊主（獲物0で帰還）','5分ごとに −1pt'],['スタミナ超過','超えた5分ごとに −1pt'],['出猟から1分以内の帰還','ノーカウント'],[TICKET + 'pt','ガチャ券1枚']].map(r => '<div class="stat"><span>' + r[0] + '</span><span>' + r[1] + '</span></div>').join('') +
     '<p style="font-size:13px;margin-top:10px">坊主のたびに番人の機嫌が1段階悪くなり、画面が斬られる。獲物を制限時間内に持ち帰れば1段階戻る。制限時間を超えると機嫌が悪くなるが、たまに番人が見逃してくれる（機嫌が最悪のときは見逃してくれない）。</p></div>' +
     '<div class="panel"><span class="tag">いま</span>' + [['狩猟pt', S.pt],['番人の機嫌', S.stage + ' / 4'],['ガチャ券', S.tickets + '枚'],['坊主率（直近30回）', S.bozu_rate + '%']].map(r => '<div class="stat"><span>' + r[0] + '</span><span>' + r[1] + '</span></div>').join('') + '</div>' +
     (S.pt >= TICKET ? '<button class="btn" data-a="getTicket">' + TICKET + 'ptでガチャ券と交換</button>' : '') +
@@ -323,8 +325,8 @@ function vDism(){
 function vResult(){
   const r = result;
   if (r.void) return '<div class="result good" data-a="closeResult"><div class="big">帰還</div><div style="font-size:22px">短すぎて、狩りにならなかった。</div><div style="font-size:18px;color:#ffd23f">ノーカウント</div><div style="font-size:14px">（タップで関所へ）</div></div>';
-  if (r.bozu) return '<div class="result bozu" data-a="closeResult"><div style="position:absolute;inset:0;overflow:hidden;z-index:-1">' + document.getElementById('bozu-bg').innerHTML + '</div><div class="big" style="filter:url(#rough);padding:10px">坊主</div><div style="font-size:22px">' + r.mins + '分を、森に捨てた。</div><div class="pen" style="border:6px solid #d6301f;background:#f2ecdf;padding:4px 16px;transform:rotate(-8deg)">−' + r.penalty + '</div><div style="font-size:14px;background:#f2ecdf;padding:2px 8px">（タップで関所へ）</div></div>';
-  return '<div class="result good" data-a="closeResult"><div class="big">帰還</div><div style="font-size:22px">獲物 ' + r.catches + ' 匹を持ち帰った（' + r.mins + '分）</div>' + (r.penalty ? '<div class="pen">時間オーバー −' + r.penalty + '</div>' : '') + (r.mercy ? '<div style="font-size:18px;color:#ffd23f">番人が見逃してくれた。機嫌が少し直った</div>' : r.overtime ? '<div style="font-size:18px;color:#d6301f">時間オーバーで番人の機嫌が悪化した</div>' : '<div style="font-size:18px;color:#ffd23f">番人の機嫌が少し直った</div>') + '<div style="font-size:14px">（タップで関所へ）</div></div>';
+  if (r.bozu) return '<div class="result bozu" data-a="closeResult"><div style="position:absolute;inset:0;overflow:hidden;z-index:-1">' + document.getElementById('bozu-bg').innerHTML + '</div><div class="big" style="filter:url(#rough);padding:10px">坊主</div><div style="font-size:22px">' + r.mins + '分を、森に捨てた。</div><div class="pen" style="border:6px solid #d6301f;background:#f2ecdf;padding:4px 16px;transform:rotate(-8deg)">−' + r.penalty + '</div>' + (r.rotten ? '<div style="font-size:18px;color:#d6301f;background:#f2ecdf;padding:2px 8px">腐った獲物が' + r.rotten + '匹。番人の機嫌が悪化した</div>' : '') + '<div style="font-size:14px;background:#f2ecdf;padding:2px 8px">（タップで関所へ）</div></div>';
+  return '<div class="result good" data-a="closeResult"><div class="big">帰還</div><div style="font-size:22px">獲物 ' + r.catches + ' 匹を持ち帰った（' + r.mins + '分）</div>' + (r.penalty ? '<div class="pen">時間オーバー −' + r.penalty + '</div>' : '') + (r.mercy ? '<div style="font-size:18px;color:#ffd23f">番人が見逃してくれた。機嫌が少し直った</div>' : r.overtime ? '<div style="font-size:18px;color:#d6301f">時間オーバーで番人の機嫌が悪化した</div>' : '<div style="font-size:18px;color:#ffd23f">番人の機嫌が少し直った</div>') + (r.rotten ? '<div style="font-size:18px;color:#d6301f">腐った獲物が' + r.rotten + '匹。番人の機嫌が悪化した</div>' : '') + '<div style="font-size:14px">（タップで関所へ）</div></div>';
 }
 function vNotice(){
   return '<div class="result good" data-a="closeNotice"><div class="big" style="font-size:44px">' + esc(notice.t) + '</div><div style="font-size:19px;line-height:1.6">' + esc(notice.s) + '</div><div style="font-size:14px">（タップで関所へ）</div></div>';
