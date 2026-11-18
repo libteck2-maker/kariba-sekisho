@@ -745,6 +745,7 @@ function vLabView(){
   const inner = document.createElement('div'); inner.id = 'labScene'; inner.style.transformOrigin = 'top left';
   inner.appendChild(tpl.content.cloneNode(true)); box.appendChild(inner); wrap.appendChild(box);
   const t = box.querySelector('[data-lab-timer]'); if (t) t.textContent = isLab() ? labLeftText() : '2:00';
+  const tw = box.querySelector('.lab-timer'); if (tw && !isLab()) tw.style.visibility = 'hidden';
   const list = document.createElement('div'); list.className = 'screen';
   const it = sortedCatches(catches);
   list.innerHTML = (it.length ? it.map(catchCard).join('') : '<div style="text-align:center;margin:20px 0">捌く獲物がない。</div>') + '<button class="btn sub" data-a="leaveLab">正門に戻る</button>';
