@@ -222,6 +222,7 @@ const Local = (function(){
     list_catches: () => D.catches.slice(0, 300),
     classify: a => { const c = D.catches.find(x => x.id === a.p_id); if (c){ c.kind = a.p_kind; if (a.p_title != null) c.title = a.p_title; if (a.p_deadline !== undefined) c.deadline = a.p_deadline; save(); } return status(); },
     cook: a => { const c = D.catches.find(x => x.id === a.p_id); if (c && !c.used){ c.used = true; D.pt += 3; save(); } return status(); },
+    dismantle: a => { const c = D.catches.find(x => x.id === a.p_id); const note = ((a && a.p_note) || '').trim(); if (c && !c.used && note){ c.used = true; c.dismantle_note = note; c.dismantled_at = new Date().toISOString(); D.pt += 3; save(); } return status(); },
     get_ticket: () => { if (D.pt >= TICKET){ D.pt -= TICKET; D.tickets += 1; save(); } return status(); },
     use_ticket: () => { if (D.tickets > 0){ D.tickets -= 1; save(); } return status(); },
     hunt_log: () => D.hunts.filter(h => h.ended_at).slice(-100).reverse(),
@@ -230,7 +231,7 @@ const Local = (function(){
 
 /* ---------- 画面 ---------- */
 let S = null, view = 'gate', catches = [], bagTab = 'all', draft = { text:'', kind:'未仕分け', title:'', deadline:'' };
-let pickGround = 'Instagram', pickStamina = 10, sheet = null, result = null, timerId = null, notice = null;
+let pickGround = 'Instagram', pickStamina = 10, sheet = null, result = null, timerId = null, notice = null, dismId = null, dismNote = '';
 const q = new URLSearchParams(location.search);
 if (q.get('gate') && GROUNDS.includes(q.get('gate'))) pickGround = q.get('gate');
 if (q.get('catch')){ draft.text = q.get('catch'); view = 'catch'; }
@@ -289,13 +290,13 @@ function vBag(){
       return '<div class="card' + (f.rot && !c.used ? ' rot' : '') + '"><h3><span class="kind k' + esc(c.kind) + '">' + esc(c.kind) + '</span>' + esc(c.title || String(c.text).replace(/https?:\/\/\S+/g, '').slice(0, 30) || '（無題）') + '</h3>' +
         '<p>' + esc(String(c.text).replace(/https?:\/\/\S+/g, '').slice(0, 120)) + '</p>' + link(c.text) +
         (c.kind === '未仕分け' && !c.used ? '<div class="row" style="margin-top:8px">' + ['お宝','肉','素材'].map(k2 => '<button class="mini" data-cls="' + c.id + '|' + k2 + '">' + k2 + '</button>').join('') + '</div>' : '') +
-        (c.used ? '<div class="fresh">料理済み</div>' : '<div class="fresh"><span>' + (f.rot ? '腐った' : '鮮度 あと' + f.days + '日') + '</span><div class="bar' + (f.ratio < .3 ? ' over' : '') + '"><i style="width:' + Math.round(f.ratio * 100) + '%"></i></div>' + (f.rot ? '' : '<button class="mini" data-cook="' + c.id + '">' + k.verb + ' +3</button>') + '</div>') + '</div>'; }).join('')
+        (c.used ? '<div class="fresh">解体済み' + (c.dismantle_note ? '<br>→ ' + esc(c.dismantle_note) : '') + '</div>' : '<div class="fresh"><span>' + (f.rot ? '腐った' : '鮮度 あと' + f.days + '日') + '</span><div class="bar' + (f.ratio < .3 ? ' over' : '') + '"><i style="width:' + Math.round(f.ratio * 100) + '%"></i></div>' + (f.rot ? '' : '<button class="mini" data-dism="' + c.id + '">解体する +3</button>') + '</div>') + '</div>'; }).join('')
       : '<div style="text-align:center;margin-top:40px">まだ獲物がない。</div>') + '</div>';
 }
 function vRules(){
   const pushLabel = !('PushManager' in window) ? 'この端末では通知を使えない' : (window.Notification && Notification.permission === 'granted') ? '通知オン（タップで登録を更新）' : '通知をオンにする';
   return '<div class="screen"><div class="h1">掟</div><div class="panel"><span class="tag">掟</span>' +
-    [['引き返す','その日の1・3・6・10…回目で+1pt'],['同じ狩場の引き返し','10分あけないと数えない'],['獲物（お宝・肉）','+2pt'],['獲物（素材・未仕分け）','+1pt'],['料理した（話した・応募した・使った）','+3pt'],['坊主（獲物0で帰還）','5分ごとに −1pt'],['スタミナ超過','超えた5分ごとに −1pt'],['出猟から1分以内の帰還','ノーカウント'],[TICKET + 'pt','ガチャ券1枚']].map(r => '<div class="stat"><span>' + r[0] + '</span><span>' + r[1] + '</span></div>').join('') +
+    [['引き返す','その日の1・3・6・10…回目で+1pt'],['同じ狩場の引き返し','10分あけないと数えない'],['獲物（お宝・肉）','+2pt'],['獲物（素材・未仕分け）','+1pt'],['解体した（何になったか一言添える）','+3pt'],['坊主（獲物0で帰還）','5分ごとに −1pt'],['スタミナ超過','超えた5分ごとに −1pt'],['出猟から1分以内の帰還','ノーカウント'],[TICKET + 'pt','ガチャ券1枚']].map(r => '<div class="stat"><span>' + r[0] + '</span><span>' + r[1] + '</span></div>').join('') +
     '<p style="font-size:13px;margin-top:10px">坊主のたびに番人の機嫌が1段階悪くなり、画面が斬られる。獲物を制限時間内に持ち帰れば1段階戻る。制限時間を超えると機嫌が悪くなるが、たまに番人が見逃してくれる（機嫌が最悪のときは見逃してくれない）。</p></div>' +
     '<div class="panel"><span class="tag">いま</span>' + [['狩猟pt', S.pt],['番人の機嫌', S.stage + ' / 4'],['ガチャ券', S.tickets + '枚'],['坊主率（直近30回）', S.bozu_rate + '%']].map(r => '<div class="stat"><span>' + r[0] + '</span><span>' + r[1] + '</span></div>').join('') + '</div>' +
     (S.pt >= TICKET ? '<button class="btn" data-a="getTicket">' + TICKET + 'ptでガチャ券と交換</button>' : '') +
@@ -309,6 +310,15 @@ function vSheet(){
     '<div class="label">狩場</div><div class="row">' + GROUNDS.map(g => '<button class="chip' + (pickGround === g ? ' on' : '') + '" data-g="' + g + '">' + g + '</button>').join('') + '</div>' +
     '<div class="label">スタミナ</div><div class="row">' + [5,10,15,30].map(m => '<button class="chip' + (pickStamina === m ? ' on' : '') + '" data-m="' + m + '">' + m + '分</button>').join('') + '</div>' +
     '<div style="height:18px"></div><button class="btn" data-a="startHunt">出猟！</button><button class="btn sub" data-a="closeSheet">やめる</button></div></div>';
+}
+function vDism(){
+  const c = catches.find(x => x.id === dismId);
+  if (!c) return '';
+  return '<div class="sheet" data-a="closeSheet"><div><div class="h1" style="font-size:24px">解体する</div>' +
+    '<div class="panel" style="margin-bottom:12px"><span class="kind k' + esc(c.kind) + '">' + esc(c.kind) + '</span><p style="margin-top:8px">' + esc(String(c.text).slice(0, 120)) + '</p></div>' +
+    '<div class="label">何を取り出す？（何に使った・何になったか、一言）</div>' +
+    '<textarea id="dn" placeholder="例：ありさとの明日の話題にした">' + esc(dismNote) + '</textarea>' +
+    '<div style="height:18px"></div><button class="btn" data-a="doDism">解体する +3pt</button><button class="btn sub" data-a="closeSheet">やめる</button></div></div>';
 }
 function vResult(){
   const r = result;
@@ -328,7 +338,8 @@ function render(){
   const app = $('#app'); app.innerHTML = '';
   if (view === 'gate'){ app.appendChild(vGate()); fitFrame(); }
   else { app.innerHTML = ({ hunt:vHunt, catch:vCatch, bag:vBag, rules:vRules }[view] || vCatch)() + nav(); }
-  if (sheet) app.insertAdjacentHTML('beforeend', vSheet());
+  if (sheet === 'hunt') app.insertAdjacentHTML('beforeend', vSheet());
+  if (sheet === 'dism') app.insertAdjacentHTML('beforeend', vDism());
   if (result) app.insertAdjacentHTML('beforeend', vResult());
   if (notice) app.insertAdjacentHTML('beforeend', vNotice());
   tick();
@@ -363,7 +374,9 @@ const ACT = {
     : { t:'引き返した', s:((r && r.added_pt) ? '+1pt。' : '') + 'ホームに戻って、別のことをしよう。' }; }),
   closeNotice: () => { notice = null; render(); },
   hunt: () => { sheet = 'hunt'; render(); },
-  closeSheet: () => { sheet = null; render(); },
+  closeSheet: () => { sheet = null; dismId = null; render(); },
+  doDism: () => { const note = (((($('#dn') || {}).value) || dismNote) || '').trim(); if (!note) return toast('何を取り出すか、一言書いて');
+    act('dismantle', { p_id:dismId, p_note:note }, () => { toast('解体した +3pt'); sheet = null; dismId = null; dismNote = ''; loadBag(); }); },
   startHunt: () => act('start_hunt', { p_ground:pickGround, p_stamina:pickStamina }, () => { sheet = null; if (SCHEME[pickGround]) setTimeout(() => { location.href = SCHEME[pickGround]; }, 300); }),
   endHunt: () => act('end_hunt', {}, r => { if (r.result) result = r.result; view = 'gate'; }),
   closeResult: () => { result = null; render(); },
@@ -379,9 +392,9 @@ const ACT = {
   pushOn: () => { enablePush().then(ok => { toast(ok ? '通知を登録した' : '登録失敗 ' + pushErr); render(); }); },
 };
 async function loadBag(){ try { catches = await rpc('list_catches', {}) || []; } catch(e){ toast('獲物袋を開けなかった'); } render(); }
-document.addEventListener('input', e => { if (e.target.id === 'tx') draft.text = e.target.value; if (e.target.id === 'ti') draft.title = e.target.value; if (e.target.id === 'dl') draft.deadline = e.target.value; });
+document.addEventListener('input', e => { if (e.target.id === 'tx') draft.text = e.target.value; if (e.target.id === 'ti') draft.title = e.target.value; if (e.target.id === 'dl') draft.deadline = e.target.value; if (e.target.id === 'dn') dismNote = e.target.value; });
 document.addEventListener('click', e => {
-  const el = e.target.closest('[data-a],[data-act],[data-nav],[data-g],[data-m],[data-k],[data-t],[data-cook],[data-cls]'); if (!el) return;
+  const el = e.target.closest('[data-a],[data-act],[data-nav],[data-g],[data-m],[data-k],[data-t],[data-cook],[data-cls],[data-dism]'); if (!el) return;
   const d = el.dataset;
   if (d.nav){ e.preventDefault(); view = d.nav; if (view === 'bag') loadBag(); else render(); window.scrollTo(0, 0); return; }
   if (d.act && ACT[d.act]) return ACT[d.act]();
@@ -391,6 +404,7 @@ document.addEventListener('click', e => {
   if (d.k){ draft.kind = d.k; return render(); }
   if (d.t){ bagTab = d.t; return render(); }
   if (d.cook) return act('cook', { p_id:d.cook }, () => { toast('料理完成 +3pt'); loadBag(); });
+  if (d.dism){ dismId = d.dism; dismNote = ''; sheet = 'dism'; return render(); }
   if (d.cls){ const [id, k] = d.cls.split('|'); return act('classify', { p_id:id, p_kind:k }, () => loadBag()); }
 });
 function urlB64ToUint8(b){ const pad = '='.repeat((4 - b.length % 4) % 4); const raw = atob((b + pad).replace(/-/g, '+').replace(/_/g, '/')); const arr = new Uint8Array(raw.length); for (let i = 0; i < raw.length; i++) arr[i] = raw.charCodeAt(i); return arr; }
