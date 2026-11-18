@@ -744,21 +744,21 @@ function vLabView(){
   const tpl = document.getElementById('lab-' + Math.max(0, Math.min(4, S.stage)));
   const inner = document.createElement('div'); inner.id = 'labScene'; inner.style.transformOrigin = 'top left';
   inner.appendChild(tpl.content.cloneNode(true)); box.appendChild(inner); wrap.appendChild(box);
-  const t = box.querySelector('[data-lab-timer]'); if (t) t.textContent = labLeftText();
+  const t = box.querySelector('[data-lab-timer]'); if (t) t.textContent = isLab() ? labLeftText() : '2:00';
   const list = document.createElement('div'); list.className = 'screen';
   const it = sortedCatches(catches);
   list.innerHTML = (it.length ? it.map(catchCard).join('') : '<div style="text-align:center;margin:20px 0">捌く獲物がない。</div>') + '<button class="btn sub" data-a="leaveLab">正門に戻る</button>';
   wrap.appendChild(list);
   return wrap;
 }
-async function endLab(msg){
-  try { const r = await rpc('end_hunt', {}); if (r && typeof r.pt === 'number') S = r; } catch(e){}
-  view = 'gate'; render(); toast(msg || '解体場を出た');
+async function passExpire(){
+  try { const r = await rpc('hunt_status', {}); if (r && typeof r.pt === 'number') S = r; } catch(e){}
+  if (!isLab()){ render(); toast('見に行く時間が終わった'); }
 }
 function vRules(){
   const pushLabel = !('PushManager' in window) ? 'この端末では通知を使えない' : (window.Notification && Notification.permission === 'granted') ? '通知オン（タップで登録を更新）' : '通知をオンにする';
   return '<div class="screen"><div class="h1">掟</div><div class="panel"><span class="tag">掟</span>' +
-    [['引き返す','その日の1・3・6・10…回目で+1pt'],['同じ狩場の引き返し','10分あけないと数えない'],['獲物（お宝・肉）','+2pt'],['獲物（素材・未仕分け）','+1pt'],['解体した（何になったか一言添える）','+3pt'],['獲物を腐らせた（帰還でまとめて判定）','機嫌+1'],['坊主（獲物0で帰還）','5分ごとに −1pt'],['スタミナ超過','超えた5分ごとに −1pt'],['出猟から1分以内の帰還','ノーカウント'],['解体場','2分だけ門番が通す。解体の確認用'],[TICKET + 'pt','ガチャ券1枚']].map(r => '<div class="stat"><span>' + r[0] + '</span><span>' + r[1] + '</span></div>').join('') +
+    [['引き返す','その日の1・3・6・10…回目で+1pt'],['同じ狩場の引き返し','10分あけないと数えない'],['獲物（お宝・肉）','+2pt'],['獲物（素材・未仕分け）','+1pt'],['解体した（何になったか一言添える）','+3pt'],['獲物を腐らせた（帰還でまとめて判定）','機嫌+1'],['坊主（獲物0で帰還）','5分ごとに −1pt'],['スタミナ超過','超えた5分ごとに −1pt'],['出猟から1分以内の帰還','ノーカウント'],['解体場','元の情報を見に行く間だけ、2分門番が通す'],[TICKET + 'pt','ガチャ券1枚']].map(r => '<div class="stat"><span>' + r[0] + '</span><span>' + r[1] + '</span></div>').join('') +
     '<p style="font-size:13px;margin-top:10px">坊主のたびに番人の機嫌が1段階悪くなり、画面が斬られる。獲物を制限時間内に持ち帰れば1段階戻る。制限時間を超えると機嫌が悪くなるが、たまに番人が見逃してくれる（機嫌が最悪のときは見逃してくれない）。</p></div>' +
     '<div class="panel"><span class="tag">いま</span>' + [['狩猟pt', S.pt],['番人の機嫌', S.stage + ' / 4'],['ガチャ券', S.tickets + '枚'],['坊主率（直近30回）', S.bozu_rate + '%']].map(r => '<div class="stat"><span>' + r[0] + '</span><span>' + r[1] + '</span></div>').join('') + '</div>' +
     (S.pt >= TICKET ? '<button class="btn" data-a="getTicket">' + TICKET + 'ptでガチャ券と交換</button>' : '') +
@@ -776,11 +776,12 @@ function vSheet(){
 function vDism(){
   const c = catches.find(x => x.id === dismId);
   if (!c) return '';
+  const url = (String(c.text).match(/https?:\/\/\S+/) || [])[0];
   return '<div class="sheet" data-a="closeSheet"><div><div class="h1" style="font-size:24px">解体する</div>' +
     '<div class="panel" style="margin-bottom:12px"><span class="kind k' + esc(c.kind) + '">' + esc(c.kind) + '</span><p style="margin-top:8px">' + esc(String(c.text).slice(0, 120)) + '</p></div>' +
     '<div class="label">何を取り出す？（何に使った・何になったか、一言）</div>' +
     '<textarea id="dn" placeholder="例：ありさとの明日の話題にした">' + esc(dismNote) + '</textarea>' +
-    '<div style="height:18px"></div><button class="btn" data-a="doDism">解体する +3pt</button><button class="btn sub" data-a="closeSheet">やめる</button></div></div>';
+    '<div style="height:18px"></div>' + (url ? '<button class="btn" data-a="goCheck">元の情報を見に行く（2分）</button>' : '') + '<button class="btn' + (url ? ' sub' : '') + '" data-a="doDism">解体する +3pt</button><button class="btn sub" data-a="closeSheet">やめる</button></div></div>';
 }
 function vResult(){
   const r = result;
@@ -794,10 +795,9 @@ function vNotice(){
 }
 function render(){
   if (!S) return;
-  if (view === 'gate' && S.hunting) view = isLab() ? 'lab' : 'hunt';
+  if (view === 'gate' && S.hunting && !isLab()) view = 'hunt';
   if (view === 'hunt' && !S.hunting) view = 'gate';
-  if (view === 'hunt' && isLab()) view = 'lab';
-  if (view === 'lab' && !isLab()) view = 'gate';
+  if (view === 'hunt' && isLab()) view = 'gate';
   LS.set('kariba-view', (view === 'hunt' || view === 'lab') ? 'gate' : view);
   document.body.dataset.world = world();
   const app = $('#app'); app.innerHTML = '';
@@ -810,7 +810,7 @@ function render(){
   if (notice) app.insertAdjacentHTML('beforeend', vNotice());
   tick();
 }
-function tick(){ if (view === 'lab' && isLab()){ const el = document.querySelector('[data-lab-timer]'); if (el) el.textContent = labLeftText(); if (labLeft() <= 0 && !tick._labBusy){ tick._labBusy = true; endLab('解体の時間が切れた'); } }
+function tick(){ if (view === 'lab' && isLab()){ const el = document.querySelector('[data-lab-timer]'); if (el) el.textContent = labLeftText(); if (labLeft() <= 0 && !tick._passBusy){ tick._passBusy = true; passExpire().then(() => { tick._passBusy = false; }); } }
   if (!S || !S.hunt || !$('#tm')) return;
   const sec = Math.floor((Date.now() - new Date(S.hunt.started_at)) / 1000), lim = S.hunt.stamina_min * 60;
   $('#tm').textContent = Math.floor(sec / 60) + ':' + String(sec % 60).padStart(2, '0');
@@ -842,22 +842,27 @@ const ACT = {
   closeNotice: () => { notice = null; render(); },
   hunt: () => { sheet = 'hunt'; render(); },
   closeSheet: () => { sheet = null; dismId = null; render(); },
-  doDism: () => { const note = (((($('#dn') || {}).value) || dismNote) || '').trim(); if (!note) return toast('何を取り出すか、一言書いて');
-    act('dismantle', { p_id:dismId, p_note:note }, () => { toast('解体した +3pt'); sheet = null; dismId = null; dismNote = ''; loadBag(); }); },
+  doDism: async () => { const note = (((($('#dn') || {}).value) || dismNote) || '').trim(); if (!note) return toast('何を取り出すか、一言書いて');
+    try { const r = await rpc('dismantle', { p_id:dismId, p_note:note }); if (r && typeof r.pt === 'number') S = r; } catch(e){ toast('つながらなかった：' + e.message); return; }
+    if (isLab()){ try { const r2 = await rpc('end_hunt', {}); if (r2 && typeof r2.pt === 'number') S = r2; } catch(e){} }
+    toast('解体した +3pt'); sheet = null; dismId = null; dismNote = ''; loadBag(); },
   startHunt: () => act('start_hunt', { p_ground:pickGround, p_stamina:pickStamina }, () => { sheet = null; if (SCHEME[pickGround]) setTimeout(() => { location.href = SCHEME[pickGround]; }, 300); }),
   endHunt: () => act('end_hunt', {}, r => { if (r.result) result = r.result; view = 'gate'; }),
   closeResult: () => { result = null; render(); },
   toCatch: () => { view = 'catch'; render(); },
-  toLab: async () => { if (!S) return;
+  toLab: () => { if (!S) return;
     if (S.hunting && !isLab()){ toast('狩猟中は解体場に入れない'); return; }
-    if (!S.hunting){ try { const r = await rpc('start_hunt', { p_ground:'解体場', p_stamina:2 }); if (r && typeof r.pt === 'number') S = r; } catch(e){ toast('つながらなかった：' + e.message); return; } }
     view = 'lab'; loadBag(); },
-  leaveLab: () => { if (isLab()) endLab(null); else { view = 'gate'; render(); } },
+  leaveLab: () => { view = 'gate'; render(); },
+  goCheck: async () => { const c = catches.find(x => x.id === dismId); if (!c) return;
+    const m = String(c.text).match(/https?:\/\/\S+/); if (!m) return;
+    if (!isLab()){ try { const r = await rpc('start_hunt', { p_ground:'解体場', p_stamina:2 }); if (r && typeof r.pt === 'number') S = r; } catch(e){ toast('つながらなかった：' + e.message); return; } }
+    sheet = null; dismId = null; location.href = m[0]; },
   saveCatch: () => { if (!draft.text.trim()) return toast('獲物が空っぽ');
     act('add_catch', { p_text:draft.text.trim(), p_kind:draft.kind, p_title:draft.title || null, p_deadline:draft.deadline || null }, r => {
       toast('仕留めた！ +' + (r.added_pt || KIND[draft.kind].pt) + 'pt'); draft = { text:'', kind:'未仕分け', title:'', deadline:'' };
       try{ history.replaceState(null, '', location.pathname); }catch(e){}
-      view = S.hunting ? 'hunt' : 'bag'; if (view === 'bag') loadBag(); }); },
+      view = (S.hunting && !isLab()) ? 'hunt' : 'bag'; if (view === 'bag') loadBag(); }); },
   getTicket: () => act('get_ticket', {}, () => toast('ガチャ券ゲット！本物のガチャを1回まわしてよし')),
   useTicket: () => act('use_ticket', {}, () => toast('景品は基地の壁へ')),
   saveSecret: () => { LS.set('kariba-secret', ($('#sec') || {}).value || ''); toast('保存した'); boot(); },
